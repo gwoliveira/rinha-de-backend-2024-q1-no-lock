@@ -1,33 +1,56 @@
 package dev.lfstech.service
 
-import dev.lfstech.data.CustomerEntity
+import dev.lfstech.data.Customers
 import dev.lfstech.rounting.request.TransactionRequest
 import dev.lfstech.util.UnprocessableEntity
-import org.jetbrains.exposed.dao.load
 import org.jetbrains.exposed.sql.transactions.transaction
 
 class CustomerService(
-    private val transactionService: TransactionService
+    private val transactionService: TransactionService,
 ) {
-    fun getById(id: Int) = transaction {
-        CustomerEntity
-            .findById(id)
-    }
-
-    fun transact(id: Int, req: TransactionRequest) = transaction {
-        exec("select pg_advisory_xact_lock($id)")
-        val customer = getById(id)!!
-
-        if (req.tipo.toString() == "d" && (customer.balance - req.valor < -customer.credit))
-            throw UnprocessableEntity("Crédito insuficiente")
-
-        when (req.tipo.toString()) {
-            "d" -> customer.balance -= req.valor
-            "c" -> customer.balance += req.valor
+    fun getCreditLimitById(id: Int) =
+        transaction {
+            Customers.select(Customers.credit)
+                .where { Customers.id eq id }
+                .map { it[Customers.credit] }
+                .firstOrNull()
         }
 
-        transactionService.create(customer, req)
+    fun transact(
+        customerId: Int,
+        credit: Long,
+        req: TransactionRequest,
+    ): Long {
+        val transactionId = transaction { transactionService.create(customerId, req) }
+        return transaction {
+            val transactionWithBalance = transactionService.lastTransactionsWithBalance(customerId, transactionId)
 
-        customer
+            val transactions =
+                transactionService.transactions(
+                    customerId,
+                    transactionWithBalance?.transactionId ?: 0,
+                    transactionId,
+                )
+
+            val partialBalance =
+                transactions
+                    .fold(
+                        transactionWithBalance?.balance ?: 0L,
+                    ) { acc, transaction -> transaction.calculateBalance(acc, credit) }
+
+            val balance =
+                when (req.tipo) {
+                    'd' -> partialBalance - req.valor
+                    'c' -> partialBalance + req.valor
+                    else -> throw UnprocessableEntity("Tipo desconhecido")
+                }
+
+            if (balance < -credit) {
+                throw UnprocessableEntity("Crédito insuficiente")
+            }
+
+            transactionService.updateBalance(transactionId, balance)
+            balance
+        }
     }
 }

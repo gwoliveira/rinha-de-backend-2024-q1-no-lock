@@ -1,7 +1,6 @@
 package dev.lfstech.rounting
 
-import dev.lfstech.data.CustomerEntity
-import dev.lfstech.data.TransactionEntity
+import dev.lfstech.data.Transactions
 import dev.lfstech.rounting.request.TransactionRequest
 import dev.lfstech.rounting.response.Balance
 import dev.lfstech.rounting.response.StatementResponse
@@ -15,6 +14,7 @@ import io.ktor.server.plugins.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.jetbrains.exposed.dao.id.EntityID
 import org.kodein.di.instance
 import org.kodein.di.ktor.closestDI
 import java.security.InvalidParameterException
@@ -25,63 +25,71 @@ fun Route.customerRoute() {
     val transactionService by closestDI().instance<TransactionService>()
 
     post("/transacoes") {
-        val id = call.parameters["id"]
-            ?.toIntOrNull() ?: throw InvalidParameterException("Id deve ser um inteiro")
+        val id =
+            call.parameters["id"]
+                ?.toIntOrNull() ?: throw InvalidParameterException("Id deve ser um inteiro")
 
-        customerService.getById(id)
-            ?: throw NotFoundException("Cliente não encontrado")
+        val req: TransactionRequest =
+            call.runCatching {
+                receive<TransactionRequest>()
+            }.getOrElse { throw UnprocessableEntity("Body incorreto") }
 
-        var req: TransactionRequest
+        val credit =
+            customerService.getCreditLimitById(id)
+                ?: throw NotFoundException("Cliente não encontrado")
 
-        try {
-            req = call.receive<TransactionRequest>()
-        } catch (e: Throwable) {
-            throw UnprocessableEntity("Body incorreto")
-        }
-
-        val customer = customerService.transact(id, req)
+        val balance = customerService.transact(id, credit, req)
 
         call.respond(
-            message = customer.toTransactionResponse()
+            message =
+                TransactionResponse(
+                    saldo = balance,
+                    limite = credit,
+                ),
         )
     }
 
     get("/extrato") {
-        val id = call.parameters["id"]
-            ?.toIntOrNull() ?: throw InvalidParameterException("Id deve ser um inteiro")
+        val id =
+            call.parameters["id"]
+                ?.toIntOrNull() ?: throw InvalidParameterException("Id deve ser um inteiro")
 
-        val customer = customerService.getById(id)
-            ?: throw NotFoundException("Cliente não encontrado")
+        val credit =
+            customerService.getCreditLimitById(id)
+                ?: throw NotFoundException("Cliente não encontrado")
 
-        val customerTransactions = transactionService.getByClient(customer.id.value)
-
+        val transactionWithBalance = transactionService.lastTransactionsWithBalance(id, EntityID(Int.MAX_VALUE, Transactions))
+        val balance = transactionWithBalance?.balance ?: 0L
+        val transactions =
+            if (transactionWithBalance != null) {
+                transactionService.transactions(
+                    id,
+                    transactionWithBalance.transactionId - 10,
+                    EntityID(transactionWithBalance.transactionId + 1, Transactions),
+                ).reversed()
+            } else {
+                listOf()
+            }
         call.respond(
-            message = customer.toStatementResponse(customerTransactions)
+            message =
+                StatementResponse(
+                    saldo =
+                        Balance(
+                            total = balance,
+                            limite = credit,
+                            data_extrato = LocalDateTime.now(),
+                        ),
+                    ultimas_transacoes =
+                        transactions
+                            .map {
+                                Transaction(
+                                    tipo = it.type,
+                                    valor = it.amount,
+                                    descricao = it.description,
+                                    realizado_em = it.createdAt,
+                                )
+                            },
+                ),
         )
     }
 }
-
-private fun CustomerEntity.toTransactionResponse() =
-    TransactionResponse(
-        saldo = balance,
-        limite = credit
-    )
-
-private fun TransactionEntity.toStatementResponse() =
-    Transaction(
-        tipo = type,
-        valor = amount,
-        descricao = description,
-        realizado_em = createdAt
-    )
-
-private fun CustomerEntity.toStatementResponse(transactions: List<TransactionEntity>) =
-    StatementResponse(
-        saldo = Balance(
-            total = balance,
-            limite = credit,
-            data_extrato = LocalDateTime.now()
-        ),
-        ultimas_transacoes = transactions
-            .map { it.toStatementResponse() }
-    )
