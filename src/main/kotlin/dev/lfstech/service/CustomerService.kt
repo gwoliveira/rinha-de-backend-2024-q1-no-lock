@@ -25,19 +25,19 @@ class CustomerService(
         return transaction {
             val transactionWithBalance = transactionService.lastTransactionsWithBalance(customerId, transactionId)
 
-            val transactions =
-                transactionService.transactions(
-                    customerId,
-                    transactionWithBalance?.transactionId ?: 0,
-                    transactionId,
-                )
-
+            val transactionWithBalanceId = transactionWithBalance?.transactionId ?: 0
             val partialBalance =
-                transactions
-                    .fold(
+                if (transactionWithBalanceId == transactionId.value - 1) {
+                    transactionWithBalance?.balance ?: 0
+                } else {
+                    transactionService.transactions(
+                        customerId,
+                        transactionWithBalanceId,
+                        transactionId,
+                    ).fold(
                         transactionWithBalance?.balance ?: 0L,
                     ) { acc, transaction -> transaction.calculateBalance(acc, credit) }
-
+                }
             val balance =
                 when (req.tipo) {
                     'd' -> partialBalance - req.valor
