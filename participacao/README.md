@@ -5,6 +5,9 @@
 <img src="https://upload.wikimedia.org/wikipedia/commons/7/74/Kotlin_Icon.png" alt="logo clojure" width="100" height="auto">
 <img src="https://upload.wikimedia.org/wikipedia/commons/2/29/Postgresql_elephant.svg" alt="logo postgres" width="100" height="auto">
 
+implementação original [repositório da api](https://github.com/lsfratel/rinha-backend-2024-q1)
+
+essa é uma modificação que remove a necessidade de lock no banco de dados.
 
 Stack:
 - [Kotlin](https://kotlinlang.org)
@@ -14,4 +17,4 @@ Stack:
 - [Lighttp](https://www.lighttpd.net)
 
 Repo:
-- [repositório da api](https://github.com/lsfratel/rinha-backend-2024-q1)
+- [repositório da api](https://github.com/gwoliveira/rinha-de-backend-2024-q1-no-lock)

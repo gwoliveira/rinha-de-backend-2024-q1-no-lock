@@ -2,7 +2,7 @@ version: "3.5"
 
 services:
   api01: &api
-    image: lsfratel/rinha-2024-q1
+    image: gwoliveira/rinha-2024-q1
     hostname: api01
     environment:
       - PG_HOSTNAME=db
